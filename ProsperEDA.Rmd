@@ -1,0 +1,481 @@
+---
+title: "Prosper Load Data Exploration"
+author: "Josh Johnson"
+date: "March 3, 2016"
+output: html_document
+---
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, packages}
+#Load in all of the library's that you will need in the analysis.
+library(ggplot2)
+library(gridExtra)
+library(GGally)
+library(scales)
+library(memisc)
+library(dplyr)
+library(tidyr)
+library(stats)
+library(RColorBrewer)
+library(psych)
+```
+
+
+```{r echo=FALSE}
+pspr <- read.csv('prosperLoanData.csv')
+
+```
+
+#Getting Familiar with the Data
+The first part of Exploratory Data Analysis will be to - explore!
+We'll start with exploring each variable and then pair things down.
+
+```{r echo=FALSE, Summary}
+#dim(pspr)
+#names(pspr)
+#str(pspr)
+#summary(pspr)
+
+```
+
+Now we can start pairing the dataset down to about 10-20 variables.  I am most interested in the parameters that characterize the borrower and their loan.
+```{r echo=FALSE}
+pspr2 <- dplyr::select(pspr, BorrowerRate, EstimatedReturn,
+                       ProsperRating..numeric., ProsperRating..Alpha., ProsperScore, 
+                       BorrowerState, EmploymentStatusDuration, IsBorrowerHomeowner,
+                       CreditScoreRangeUpper, OpenCreditLines, RevolvingCreditBalance,
+                       AvailableBankcardCredit, DebtToIncomeRatio, IncomeRange,
+                       StatedMonthlyIncome,ProsperPrincipalBorrowed)
+
+```
+
+After pairing the parameters to 14, I want to subset on those borrowers that have a loan.
+
+```{r echo = FALSE}
+pspr2 <- subset(pspr2, !is.na(ProsperPrincipalBorrowed))
+
+pspr2$IncomeRange <- ordered(pspr2$IncomeRange, levels = c("NA", "$0", "$1-24,999", "$25,000-49,999", "$50,000-74,999", "$75,000-99,999", "$100,000+"))
+
+pspr2$ProsperRating..Alpha. <- ordered(pspr2$ProsperRating..Alpha., levels = c("HR", "E", "D", "C", "B", "A", "AA"))
+```
+
+Now that we have our first pass at the parameters of interest, I will explore them with univariate plots.
+
+```{r echo = FALSE, Univariate}
+
+#Plot histogram of loan amount borrowed
+qplot(x = ProsperPrincipalBorrowed, data = pspr2, binwidth = 1000)
+
+```
+
+This looks like a long tailed data, so we will want to scale the x-axis.  I also want to get the summary statistics on this parameter.
+
+```{r echo = FALSE}
+summary(pspr$ProsperPrincipalBorrowed)
+```
+
+The mean loan amount is $8472, while the median amount is $6000.  Let's look at this parameter on a log scale.
+
+```{r echo = FALSE}
+qplot(x = ProsperPrincipalBorrowed, data = pspr2) +
+  scale_x_continuous(trans = log10_trans(), limits = c(1000, 30000),
+                     breaks = c(1000, 5000, 10000, 15000, 20000, 30000))
+```
+
+The distribution looks more normal on a log scale.  Nothing too outstanding from this plot other than the bins make it appear that there are more loans on the high end than the low end.
+
+```{r echo = FALSE}
+qplot(x = BorrowerRate*100, data = pspr2, binwidth = 1)
+summary(pspr$BorrowerRate*100)
+sd(pspr$BorrowerRate*100)
+
+```
+
+Based on the websites information which shows borrower rates in the mid-single digits to mid double-digits, I am assuming that I need to scale the BorrowRate by 100.  Therefore, the rate on the loans spans from 0.00 to 49.75 with a mean of 19.28.  The standard deviation is 7.48.
+
+The next two plots show the overall distribution of the return on investment that a lender can expect to make.  In particular I zoomed in on the tail that fall under negative returns.
+
+```{r echo = FALSE}
+qplot(x = EstimatedReturn*100, data = subset(pspr2, EstimatedReturn*100 > 1), binwidth = .025, fill = I('#099DD9')) +
+  ggtitle('Frequency of Estimated Return') +
+  scale_x_log10('Estimated Return * 100') + 
+  ylab('Frequency (counts)')
+
+qplot(x = EstimatedReturn*100, data = pspr2) +
+  scale_y_log10()
+qplot(x = EstimatedReturn*100, data = pspr2) +
+  scale_x_continuous(limits = c(-20, 0),
+                     breaks = c(-20, -15, -10, -5, 0))
+summary(pspr$EstimatedReturn*100)
+
+```
+
+The range of returns spans from -18.27 to 28.37.  While some of the negative returns are large, they are relatively few.  The mean rate of return is 9.607% and the median is 9.17%, which is quite good in today's low interest environment.
+
+Let's compare the number of loans that returned a loss to those that returned a gain.
+
+```{r echo = FALSE}
+count(subset(pspr2, EstimatedReturn*100 < 0))/count(subset(pspr2, EstimatedReturn*100 > 0))
+```
+
+The ratio of negative returns to positive returns is 0.7% which seems quite low.  Overall, it appears that the risk of lending on Prosper is pretty low.
+
+Before converting the ProsperScore to an ordered factor, I plotted it and summarized it's descriptive statistics.
+
+```{r echo = FALSE}
+qplot(x = ProsperScore, data = pspr2) +
+  scale_x_continuous(breaks = c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11))
+summary(pspr$ProsperScore)
+```
+
+The mean Prosper Score is 5.95 and the median is 6.00.
+
+```{r echo = FALSE}
+qplot(x = CreditScoreRangeUpper, data = pspr2)
+summary(pspr$CreditScoreRangeUpper)
+```
+
+The mean credit score is 704.6 and the median is 699.0.  The distribution of lenders' credit scores looks different compared to the distribution of the Prosper Score.  The credit score has a handful of people at the low and high end of the range. Surely the two are related?!
+
+```{r echo = FALSE}
+qplot(x = OpenCreditLines, data = pspr2)
+summary(pspr$OpenCreditLines)
+```
+
+The average number of open credit lines is 9.26 while the median is 9.00.  There are some people that have over 30 or 40 open credit lines, which seems like a lot.
+
+```{r echo = FALSE}
+qplot(x = RevolvingCreditBalance, data = pspr2, binwidth = 1000) +
+  xlim(0, 100000)
+summary(pspr$RevolvingCreditBalance)
+```
+
+The mean revolving credit balance is $17,600 and the median is $8,549.  Looks like there's a few outliers that carry a revolving credit balance of over $250,000.  I wonder if people with higher income generally have higher revolving balances.
+
+```{r echo = FALSE}
+qplot(x = AvailableBankcardCredit, data = pspr2, binwidth = 1000) +
+  xlim(0, 100000)
+summary(pspr$AvailableBankcardCredit)
+
+
+qplot(x = DebtToIncomeRatio, data = pspr2, binwidth = .01) +
+  xlim(0, 1.75)
+summary(pspr$DebtToIncomeRatio)
+```
+
+The mean of the debt-to-income ratio is 0.276 and the median is 0.220.
+
+```{r echo = FALSE}
+str(pspr2)
+```
+
+# Univariate Analysis
+
+### What is the structure of your dataset?
+I subset the original dataset to include only those individuals that have borrowed some amount through Prosper.  I also downselected the number of variables of interest.  In the end, there are 22,085 individuals with 14 variables.  Most of these variables describe the characteristics of the borrower and so I want to see if I can use these to make an inference on one or more cohorts.
+
+Other Observations:
+IncomeRange is an ordered factor variable:
+"NA"< "$0"< "$1-24,999"< "$25,000-49,999"< "$50,000-74,999"< "$75,000-99,999"< "$100,000+"
+The mean ProsperPrincipleBorrowed is: $8472
+The mean ProsperScore is: 5.95
+The mean BorrowerRate is: 19.28%
+The mean EstimatedReturn is: 9.607%
+
+### What are the main features of interest in your dataset?
+I am interested in the ProsperPrincipleBorrowed as well as the EstimatedReturn.  I believe that other variables will be able to help predict one or both of these parameters.
+
+### What other features in the dataset do you think will help support your investigation into your features of interest?
+I believe that EmploymentStatusDuration, IsBorrowerHomeowner, CreditScoreRangeUpper, OpenCreditLines, RevolvingCreditBalance, AvailableBankcardCredit, DebtToIncomeRatio, and StatedMonthlyIncome will help to predict either ProsperPrincipleBorrowed or EstimatedReturn.
+
+### Did you create any new variables from existing variables in the dataset?
+Not yet.
+
+### Of the features you investigated, were there any unusual distributions? Did you perform any operations on the data to tidy, adjust, or change the form of the data? If so, why did you do this?
+The EstimatedReturn distribution has some outliers on both ends of the distribution and looks somewhat bimodal on a linear y axis. I used dplyr to select, subset, and order the variables in order to reduce the number of variables that I analyzed.
+
+# Bivariate Plots Section
+
+Now I am going to convert ProsperScore to an ordered factor because I believe (based on analysis later on) that this parameter will affect the EstimatedReturn.
+
+```{r echo = FALSE, Bivariate}
+pspr2$ProsperScore <- ordered(pspr2$ProsperScore, levels = c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9"))
+```
+
+Let's crossplot all of the variables to get an idea of how they are related.
+
+```{r echo = FALSE}
+set.seed(20022012)
+pspr2_samp <- pspr2[sample(1:length(pspr2$ProsperPrincipalBorrowed), 1000), ]
+
+pspr2_samp <- subset(pspr2_samp, select = -c(BorrowerState))
+
+#ggpairs(pspr2_samp, 
+#        lower = list(continuous = wrap("points", shape = I('.'))), 
+#        upper = list(combo = wrap("box", outlier.shape = I('.'))))
+
+pairs.panels(pspr2_samp, pch=".")
+#ggsave("Prosper_param_crossplot.png")
+```
+
+It looks like there's a large and positive relationship between EstimatedReturn a BorrowerRate, which makes sense.  Let's come back to that in a little bit after we explore ProsperPrincipleBorrowed.
+
+Facetwrapping Principle loan on borrower income...
+
+```{r echo = FALSE}
+
+qplot(x = ProsperPrincipalBorrowed, data = pspr2) +
+  facet_wrap(~IncomeRange, scales = "free_y")+
+  scale_x_continuous(trans = log10_trans(), limits = c(1000, 30000),
+                     breaks = c(1000, 5000, 10000, 15000, 20000, 30000))
+
+by(pspr2$ProsperPrincipalBorrowed, pspr2$IncomeRange, summary)
+```
+
+In general, the higher the income range the higher the median amount of principle borrowed - from $4k in the $1-24,999 income range all the way to $10k in the $100k+ income range.  This is confirmed by the boxplot below.
+
+```{r echo = FALSE}
+qplot(x = IncomeRange, y = ProsperPrincipalBorrowed, data = pspr2, geom = 'boxplot')
+```
+
+Facetwrapping Principle loan on homeowner status.
+
+```{r echo = FALSE}
+qplot(x = ProsperPrincipalBorrowed, data = pspr2) +
+  facet_wrap(~IsBorrowerHomeowner, scales = "free_y")+
+  scale_x_continuous(trans = log10_trans(), limits = c(1000, 30000),
+                     breaks = c(1000, 5000, 10000, 15000, 20000, 30000))
+
+by(pspr2$ProsperPrincipalBorrowed, pspr2$IsBorrowerHomeowner, summary)
+qplot(x = IsBorrowerHomeowner, y = ProsperPrincipalBorrowed, data = pspr2, geom = 'boxplot')
+```
+
+This boxplot shows that the median principle borrowed is higher for homeowners @ $7k vs non-homeowners @ $5k.
+
+Borrower rates faceted on income...
+
+```{r echo = FALSE}
+qplot(x = BorrowerRate*100, data = pspr2) +
+  facet_wrap(~IncomeRange, scales = "free_y")
+
+qplot(x = IncomeRange, y = BorrowerRate*100, data = pspr2, geom = 'boxplot')
+```
+
+From the boxplots, one can see that the borrower rate decreases, in general, with increasing income.
+
+And then Home Owner.
+
+```{r echo = FALSE}
+qplot(x = BorrowerRate*100, data = pspr2) +
+  facet_wrap(~IsBorrowerHomeowner, scales = "free_y")
+
+qplot(x = IsBorrowerHomeowner, y = BorrowerRate*100, data = pspr2, geom = 'boxplot')
+```
+
+From the boxplot one can also see that borrower rates are lower for homeowners.
+
+I want to look a two more variables, ProsperScore and ProsperRating..Alpha.
+
+```{r echo = FALSE}
+qplot(x = ProsperScore, y = BorrowerRate*100, data = pspr2, geom = 'boxplot')
+```
+
+Clearly, the borrowed rate decreases with increasing prosper score.
+
+```{r echo = FALSE}
+qplot(x = ProsperRating..Alpha., y = BorrowerRate*100, data = pspr2, geom = 'boxplot')
+```
+
+Also, in general, the borrowed rate increases with ProsperRating.
+
+Now going back to Estimated Return, let's plot a histogram for lenders' returns faceted by income range of borrower.
+
+```{r echo = FALSE}
+qplot(x = EstimatedReturn*100, data = pspr2) +
+  facet_wrap(~IncomeRange, scales = "free_y")
+
+qplot(x = ProsperScore, y = EstimatedReturn*100, data = pspr2, geom = 'boxplot')
+```
+
+There might be slight differences in the means of these groups but overall they look fairly similar.
+
+Now let's plot a scatterplot of returns vs borrower rate.
+
+```{r echo = FALSE}
+ggplot(aes(x = BorrowerRate*100, y = EstimatedReturn*100), data = pspr2_samp) + 
+  geom_point()
+```
+
+There is definitely a positive correlation between these variables, but there's some outliers that are worth investigating.
+
+Let's look at this more closely by including the full dataset.
+
+```{r echo = FALSE}
+ggplot(aes(x = BorrowerRate*100, y = EstimatedReturn*100), data = pspr2) + 
+  geom_point()
+```
+
+It looks like there's at least one more additional discrete variable that is stratifying the data.  I will look into that during the multivariate analysis.
+
+
+# Bivariate Analysis
+
+### Talk about some of the relationships you observed in this part of the investigation. How did the features of interest vary with other features in the dataset?
+I first used ggplot to cross-plot all the variables against each other and then looked for any relationships that might indicate a relatively strong correlation.  I noticed that EstimatedReturn and BorrowerRate had a strong correlation at 0.744, which makes sense.
+
+Before jumping directly into understanding that relationship I wanted to make sure that I had a better understanding of the relationships between other variables.  The following observations were made:
+
+The higher the income range the higher the median amount of principle borrowed.
+
+The median principle borrowed is higher for homeowners at $7k vs $5k for non-homeowners.
+
+Median borrower interest rates decrease, in general, with increasing income.  Homeowners also see lower rates.
+
+Rates also drop with an increasing Prosper Score and, in general, decrease with an increase in the Prosper Rating.
+
+Going back to EstimatedReturn and BorrowerRate, it was clear that I needed to dig into this relationship more closely, so I plotted a scatterplot of the two using a 1000-sampled dataset and noticed that while the majority of the points fell along a somewhat defined line there were some outliers.  Once I plotted the full dataset it was clear that there was some stratification going on based upon some other variable.  The next section will further delve into the variables that contribute to this stratification.
+
+
+### Did you observe any interesting relationships between the other features (not the main feature of interest)?
+The relationship between income range and the median amount of principle borrowed was interesting.   I don't know whether it means that richer people are allowed to borrow more or if they typically engage in more capital intensive endeavors.
+
+# Multivariate Plots Section
+
+Looking at more relationships
+
+```{r echo = FALSE}
+qplot(EmploymentStatusDuration, data = pspr2, color = IncomeRange, geom = 'density') +
+  scale_x_log10()
+```
+
+This is interesting as it shows that people who have a longer employment status typically make more money.
+
+How does both EmploymentStatus and homeownership affect income?
+
+```{r echo = FALSE}
+ggplot(aes(x = EmploymentStatusDuration, y = StatedMonthlyIncome, color = IsBorrowerHomeowner), data = pspr2) + 
+  geom_point()+
+  scale_y_log10()
+```
+
+I've kept the axes essentially the same and it appears that people who own homes are more likely to make more money.  However, this graph hides the discovery we made in the previous plot.
+
+```{r echo = FALSE}
+ggplot(aes(x = OpenCreditLines, y = AvailableBankcardCredit, color = IsBorrowerHomeowner), data = pspr2) + 
+  geom_point() +
+  scale_y_log10()
+```
+
+It appears that there is a positive correlation between the log(AvailableBankcardCredit) and OpenCreditLines.
+
+```{r echo = FALSE}
+ggplot(aes(x = StatedMonthlyIncome, y = RevolvingCreditBalance, color = IsBorrowerHomeowner), data = pspr2) + 
+  geom_point() +
+  scale_x_log10() +
+  scale_y_log10()
+```
+
+This is kind of a strange one.  A positive correlation between the log10 of Income and log10 of Revolving Credit.  Here again, homeowners have higher income and more credit lines open.
+
+
+Going back to EstimatedReturn, clearly there was a discrete stratification occurring based on some other parameter.  This should serve as a clue as the parameter is likely an ordered factor variable.
+Now let's see if we can identify the variable that is stratifying the EstimatedReturn. After trying a few different parameters it became evident that the ProsperScore and ProsperRating were influencing the stratefication.
+
+```{r echo = FALSE}
+ggplot(aes(x = BorrowerRate*100, y = EstimatedReturn*100, color = ProsperScore), data = subset(pspr2, !is.na(EstimatedReturn))) + 
+  geom_point(size = 1) +
+  facet_wrap(~ProsperRating..Alpha.) +
+  scale_color_brewer(type = 'div',
+                     guide = guide_legend(title = 'Prosper Score'),
+                     palette = "Set1")
+```
+
+Let's see if we can build a linear model of EstimatedReturn based on this information.
+
+```{r echo = FALSE}
+m1 <- lm(I(EstimatedReturn*100) ~ BorrowerRate, data = subset(pspr2, !is.na(EstimatedReturn)))
+m2 <- update(m1, ~ . + ProsperScore)
+m3 <- update(m2, ~ . + ProsperRating..Alpha.)
+
+mtable(m1, m2, m3)
+```
+
+The variables in this model account for ~80% of the variance in the estimated return.
+
+# Multivariate Analysis
+
+### Talk about some of the relationships you observed in this part of the investigation. Were there features that strengthened each other in terms of looking at your feature of interest?
+
+Both the Prosper Score and the Prosper Rating were found to help explain the investor's Estimated Return.  The strongest clue in helping uncover the right variables was that the stratification was discrete and so implied an ordered factor variable(s).  Once I plotted the Estimated Return while faceting on ProsperRating..Alpha. and coloring based on ProsperScore it was obvious that those two variables along with BorrowerRate helped explain the vast majority of EstimatedReturn's values.  
+
+It should be noted that, while not obvious from the last plots, there does seem to be some variance unaccounted for that also appears to be caused by discrete stratification.  After attempting to add the remaining ordered factor variables into my model there were no improvements in the R-squared value and so the final variable may be one that was deprecated in the initial round of selection.
+
+### Were there any interesting or surprising interactions between features?
+While these features didn't impact expected return, the density plot of Income Range against employment duration shows that people who have a longer employment status typically make more money.
+
+### OPTIONAL: Did you create any models with your dataset? Discuss the strengths and limitations of your model.
+Yes.  The model does a fairly good job of predicting someone's return when they lend money on Prosper given the R-squared value of 0.8.  However, there is a small amount of variance unaccounted for that appears to be due to a factored variable.  I was not able to identify this variable and believe that it may have been deprecated when initially pairing down the original number of features.
+
+------
+
+# Final Plots and Summary
+
+### Plot One
+
+```{r echo = FALSE}
+qplot(x = EstimatedReturn*100, data = subset(pspr2, EstimatedReturn*100 > 1), binwidth = .025, fill = I('#099DD9')) +
+  ggtitle('Frequency of Estimated Return') +
+  scale_x_log10('Estimated Return * 100') + 
+  ylab('Frequency (counts)')
+```
+
+The mean rate of return is 9.607% and the median is 9.17%, which is quite good in today's low interest environment.  The distribution appears to be negatively skewed.
+
+### Plot Two
+
+```{r echo = FALSE}
+plot1 <- ggplot(aes(x = BorrowerRate*100, y = EstimatedReturn*100), 
+                data = pspr2) + 
+  geom_point(color = I('#099DD9')) +
+  scale_x_continuous(limits = c(3, 37),
+                     breaks = c(3, 5, 10, 15, 20, 25, 30, 37)) +
+  xlab('Borrower Rate (%)') +
+  ylab('Estimated Return (%)') +
+  ggtitle('Estimated Return for Prosper Loan Rates')
+
+plot2 <- qplot(x = ProsperScore, y = BorrowerRate*100, data = pspr2, geom = 'boxplot',
+               fill = ProsperScore) +
+  ylim(c(5,35)) +
+  ggtitle('Borrower Rate given Prosper Score') +
+  xlab('Prosper Score') +
+  ylab('Borrower Rate (%)')
+
+grid.arrange(plot1, plot2, ncol = 1)
+```
+
+The Estimated Return is positively correlated with the Borrower Rate but there is variance that looks to be due to stratification from the Prosper Score.  The Prosper Score is one factor that determines the borrower's rate and, therefore, the lender's return on investment.  The lower the Prosper Score, the higher the borrower's rate.
+
+### Plot Three
+
+```{r echo = FALSE}
+ggplot(aes(x = BorrowerRate*100, y = EstimatedReturn*100, color = ProsperScore), data = subset(pspr2, !is.na(EstimatedReturn))) + 
+  geom_point(size = 1) +
+  facet_wrap(~ProsperRating..Alpha.) +
+  scale_color_brewer(type = 'div',
+                     guide = guide_legend(title = 'Prosper Score'),
+                     palette = "Set1") +
+  ggtitle('Estimated Return on Investiment Lending on Prosper') +
+  xlab('Borrower Rate (%)') +
+  ylab('Estimated Return (%)')
+```
+
+The Estimated Return on Investment is dependent on the Borrower Rate, the Prosper Score, and the Prosper Rating.  All three of these factors explain about 80% of the variance in the data.  Returns top out between ratings C, D, and E with a medium to high Prosper Score.
+
+# Reflection
+The Prosper dataset contains 113,937 observations and 87 variables.  I started by reducing the number of variables down to 16 of the most interesting which pertained to the borrower and lender characteristics.  I then explored some of the individual parameters which led to me reducing the sample size down to only those which had borrowed money on the platform.  I started to focus on the Estimated Return for the lender because that is one of the most pertinent for those coming to the platform.  As I started to plot the Estimated Return against several variables I started to notice that there were several variables that naturally popped out and explained the variance in the data.  These variables included the Borrower Rate, Prosper Score, and Prosper Alpha Rating.  While I didn't know how the Prosper Score and Alpha Rating were derived for each borrower, it makes sense that these scores would affect both the lending rate and the return.  I then made a linear model which incorporated these three variables and demonstrated that they could explain 80% of the variance in the data.  I tried to search for other variables that would explain the last 20% but couldn't find any out of the 13 left.  I believe that I may have eliminated it when depricating the number of variables at the beginning of the analysis.  I would be interested in both looking for the variable to explain the last 20% as well as further exploring how the Prosper Score and Alpha Rating were derived.
+
+
+References
+http://stackoverflow.com/questions/4605206/drop-data-frame-columns-by-name
+https://s3.amazonaws.com/udacity-hosted-downloads/ud651/diamondsExample.html
